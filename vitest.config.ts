@@ -5,9 +5,13 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    setupFiles: ['tests/testing/vitestSetup.ts'],
     coverage: {
       include: ['src/**/*'],
+      exclude: ['src/index.ts'],
       reporter: ['text', 'json', 'html'],
     },
+    watch: false,
+    testTimeout: 15000,
   },
 });

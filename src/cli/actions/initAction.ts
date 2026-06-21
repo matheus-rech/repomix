@@ -2,8 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as prompts from '@clack/prompts';
 import pc from 'picocolors';
-import type { RepomixConfigFile, RepomixOutputStyle } from '../../config/configTypes.js';
-import { defaultConfig, defaultFilePathMap } from '../../config/defaultConfig.js';
+import {
+  defaultConfig,
+  defaultFilePathMap,
+  type RepomixConfigFile,
+  type RepomixOutputStyle,
+} from '../../config/configSchema.js';
 import { getGlobalDirectory } from '../../config/globalDirectory.js';
 import { logger } from '../../shared/logger.js';
 
@@ -34,12 +38,8 @@ export const runInitAction = async (rootDir: string, isGlobal: boolean): Promise
   }
 };
 
-export async function createConfigFile(rootDir: string, isGlobal: boolean): Promise<boolean> {
-  const isCancelled = false;
-
-  const configPath = isGlobal
-    ? path.resolve(getGlobalDirectory(), 'repomix.config.json')
-    : path.resolve(rootDir, 'repomix.config.json');
+export const createConfigFile = async (rootDir: string, isGlobal: boolean): Promise<boolean> => {
+  const configPath = path.resolve(isGlobal ? getGlobalDirectory() : rootDir, 'repomix.config.json');
 
   const isCreateConfig = await prompts.confirm({
     message: `Do you want to create a ${isGlobal ? 'global ' : ''}${pc.green('repomix.config.json')} file?`,
@@ -78,23 +78,18 @@ export async function createConfigFile(rootDir: string, isGlobal: boolean): Prom
   const options = await prompts.group(
     {
       outputStyle: () => {
-        if (isCancelled) {
-          return;
-        }
         return prompts.select({
           message: 'Output style:',
           options: [
-            { value: 'plain', label: 'Plain', hint: 'Simple text format' },
             { value: 'xml', label: 'XML', hint: 'Structured XML format' },
             { value: 'markdown', label: 'Markdown', hint: 'Markdown format' },
+            { value: 'json', label: 'JSON', hint: 'Machine-readable JSON format' },
+            { value: 'plain', label: 'Plain', hint: 'Simple text format' },
           ],
           initialValue: defaultConfig.output.style,
         });
       },
       outputFilePath: ({ results }) => {
-        if (isCancelled) {
-          return;
-        }
         const defaultFilePath = defaultFilePathMap[results.outputStyle as RepomixOutputStyle];
         return prompts.text({
           message: 'Output file path:',
@@ -109,6 +104,7 @@ export async function createConfigFile(rootDir: string, isGlobal: boolean): Prom
   );
 
   const config: RepomixConfigFile = {
+    $schema: 'https://repomix.com/schemas/latest/schema.json',
     ...defaultConfig,
     output: {
       ...defaultConfig.output,
@@ -127,9 +123,9 @@ export async function createConfigFile(rootDir: string, isGlobal: boolean): Prom
   );
 
   return true;
-}
+};
 
-export async function createIgnoreFile(rootDir: string, isGlobal: boolean): Promise<boolean> {
+export const createIgnoreFile = async (rootDir: string, isGlobal: boolean): Promise<boolean> => {
   if (isGlobal) {
     prompts.log.info(`Skipping ${pc.green('.repomixignore')} file creation for global configuration.`);
     return false;
@@ -179,4 +175,4 @@ export async function createIgnoreFile(rootDir: string, isGlobal: boolean): Prom
   );
 
   return true;
-}
+};

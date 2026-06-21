@@ -2,8 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": "./src",
+<<<<<<< HEAD
     "noUnusedLocals": true,
     "noUnusedParameters": true
+=======
+    "sourceMap": false,
+    "declarationMap": false,
+    "removeComments": true
+>>>>>>> origin/main
   },
   "include": [
     "./src/**/*"

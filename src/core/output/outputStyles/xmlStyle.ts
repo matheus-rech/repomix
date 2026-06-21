@@ -1,5 +1,6 @@
 export const getXmlTemplate = () => {
   return /* xml */ `
+{{#if fileSummaryEnabled}}
 {{{generationHeader}}}
 
 <file_summary>
@@ -11,7 +12,7 @@ This section contains a summary of this file.
 
 <file_format>
 {{{summaryFileFormat}}}
-4. Repository files, each consisting of:
+5. Multiple file entries, each consisting of:
   - File path as an attribute
   - Full contents of the file
 </file_format>
@@ -24,23 +25,23 @@ This section contains a summary of this file.
 {{{summaryNotes}}}
 </notes>
 
-<additional_info>
+</file_summary>
+
+{{/if}}
 {{#if headerText}}
 <user_provided_header>
 {{{headerText}}}
 </user_provided_header>
+
 {{/if}}
-
-{{{summaryAdditionalInfo}}}
-</additional_info>
-
-</file_summary>
-
-<repository_structure>
+{{#if directoryStructureEnabled}}
+<directory_structure>
 {{{treeString}}}
-</repository_structure>
+</directory_structure>
 
-<repository_files>
+{{/if}}
+{{#if filesEnabled}}
+<files>
 This section contains the contents of the repository's files.
 
 {{#each processedFiles}}
@@ -49,7 +50,35 @@ This section contains the contents of the repository's files.
 </file>
 
 {{/each}}
-</repository_files>
+</files>
+{{/if}}
+
+{{#if gitDiffEnabled}}
+<git_diffs>
+<git_diff_work_tree>
+{{{gitDiffWorkTree}}}
+</git_diff_work_tree>
+<git_diff_staged>
+{{{gitDiffStaged}}}
+</git_diff_staged>
+</git_diffs>
+{{/if}}
+
+{{#if gitLogEnabled}}
+<git_logs>
+{{#each gitLogCommits}}
+<git_log_commit>
+<date>{{{this.date}}}</date>
+<message>{{{this.message}}}</message>
+<files>
+{{#each this.files}}
+{{{this}}}
+{{/each}}
+</files>
+</git_log_commit>
+{{/each}}
+</git_logs>
+{{/if}}
 
 {{#if instruction}}
 <instruction>

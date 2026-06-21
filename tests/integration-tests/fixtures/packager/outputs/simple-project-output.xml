@@ -1,4 +1,4 @@
-This file is a merged representation of the entire codebase, combining all repository files into a single document.
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
 
 <file_summary>
 This section contains a summary of this file.
@@ -13,8 +13,9 @@ or other automated processes.
 The content is organized as follows:
 1. This summary section
 2. Repository information
-3. Repository structure
-4. Repository files, each consisting of:
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
   - File path as an attribute
   - Full contents of the file
 </file_format>
@@ -30,24 +31,19 @@ The content is organized as follows:
 </usage_guidelines>
 
 <notes>
-- Some files may have been excluded based on .gitignore rules and Repomix's
-  configuration.
-- Binary files are not included in this packed representation. Please refer to
-  the Repository Structure section for a complete list of file paths, including
-  binary files.
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
 </notes>
 
-<additional_info>
+</file_summary>
+
 <user_provided_header>
 This repository is simple-project
 </user_provided_header>
 
-For more information about Repomix, visit: https://github.com/yamadashy/repomix
-</additional_info>
-
-</file_summary>
-
-<repository_structure>
+<directory_structure>
 resources/
   .repomixignore
   data.txt
@@ -58,9 +54,9 @@ src/
 package.json
 README.md
 repomix.config.json
-</repository_structure>
+</directory_structure>
 
-<repository_files>
+<files>
 This section contains the contents of the repository's files.
 
 <file path="resources/.repomixignore">
@@ -144,4 +140,4 @@ This will output a greeting message to the console.
 }
 </file>
 
-</repository_files>
+</files>

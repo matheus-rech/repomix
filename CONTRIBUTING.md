@@ -1,6 +1,6 @@
 # Contribution Guide
 
-Thanks for your interest in **Repomix**! 🚀 We’d love your help to make it even better. Here’s how you can get involved:
+Thanks for your interest in **Repomix**! 🚀 We'd love your help to make it even better. Here's how you can get involved:
 
 
 - **Create an Issue**: Spot a bug? Have an idea for a new feature? Let us know by creating an issue.
@@ -16,7 +16,13 @@ Repomix is maintained by Yamadashy ([@yamadashy](https://github.com/yamadashy)).
 
 ## Pull Requests
 
-Before submitting a Pull Request, please ensure:
+For new features, behavior changes, or non-trivial fixes, please open
+or comment on an issue first to discuss the direction. This helps us
+align on design and scope before any code is written, and avoids wasted
+effort on both sides. PRs submitted without prior discussion may be
+closed.
+
+Before submitting, please ensure:
 
 1. Your code passes all tests: Run `npm run test`
 2. Your code adheres to our linting standards: Run `npm run lint`
@@ -35,7 +41,20 @@ npm install
 To run Repomix locally:
 
 ```bash
-npm run cli-run
+npm run repomix
+```
+
+### Docker Usage
+You can also run Repomix using Docker. Here's how:
+
+First, build the Docker image:
+```bash
+docker build -t repomix .
+```
+
+Then, run the Docker container:
+```bash
+docker run -v ./:/app -it --rm repomix
 ```
 
 ### Coding Style
@@ -63,6 +82,27 @@ npm run test-coverage
 ### Documentation
 
 When adding new features or making changes, please update the relevant documentation in the README.md file.
+
+### Website Development
+
+The Repomix website is built with [VitePress](https://vitepress.dev/). To run the website locally:
+
+```bash
+# Prerequisites: Docker must be installed on your system
+
+# Start the website development server
+npm run website
+
+# Access the website at http://localhost:5173/
+```
+
+The website source code is located in the `website` directory. The main components are:
+
+- `website/client`: Frontend code (Vue.js components, styles, etc.)
+- `website/server`: Backend API server
+
+When updating documentation, contributors only need to update the README.md file.
+The maintainers will handle the website documentation updates.
 
 ## Releasing
 

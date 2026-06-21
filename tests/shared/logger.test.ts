@@ -1,5 +1,6 @@
+import pc from 'picocolors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { logger } from '../../src/shared/logger.js';
+import { logger, repomixLogLevels } from '../../src/shared/logger.js';
 
 vi.mock('picocolors', () => ({
   default: {
@@ -17,11 +18,39 @@ describe('logger', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(vi.fn());
     vi.spyOn(console, 'log').mockImplementation(vi.fn());
-    logger.setVerbose(false);
+    logger.init();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('log levels', () => {
+    it('should not log anything in SILENT mode', () => {
+      logger.setLogLevel(repomixLogLevels.SILENT);
+
+      logger.error('Error message');
+      logger.warn('Warning message');
+      logger.success('Success message');
+      logger.info('Info message');
+      logger.note('Note message');
+      logger.debug('Debug message');
+      logger.trace('Trace message');
+      logger.log('Log message');
+
+      expect(console.error).not.toHaveBeenCalled();
+      expect(console.log).not.toHaveBeenCalled();
+    });
+
+    it('should only log errors in ERROR mode', () => {
+      logger.setLogLevel(repomixLogLevels.ERROR);
+
+      logger.error('Error message');
+      logger.warn('Warning message');
+
+      expect(console.error).toHaveBeenCalledWith('RED:Error message');
+      expect(console.log).not.toHaveBeenCalled();
+    });
   });
 
   it('should log error messages', () => {
@@ -44,11 +73,6 @@ describe('logger', () => {
     expect(console.log).toHaveBeenCalledWith('CYAN:Info message');
   });
 
-  it('should log note messages', () => {
-    logger.note('Note message');
-    expect(console.log).toHaveBeenCalledWith('DIM:Note message');
-  });
-
   it('should log log messages', () => {
     logger.log('Note message');
     expect(console.log).toHaveBeenCalledWith('Note message');
@@ -60,7 +84,7 @@ describe('logger', () => {
   });
 
   it('should log debug messages when verbose is true', () => {
-    logger.setVerbose(true);
+    logger.setLogLevel(repomixLogLevels.DEBUG);
     logger.debug('Debug message');
     expect(console.log).toHaveBeenCalledWith('BLUE:Debug message');
   });
@@ -71,9 +95,9 @@ describe('logger', () => {
   });
 
   it('should log trace messages when verbose is true', () => {
-    logger.setVerbose(true);
+    logger.setLogLevel(repomixLogLevels.DEBUG);
     logger.trace('Trace message');
-    expect(console.log).toHaveBeenCalledWith('GRAY:Trace message');
+    expect(console.log).toHaveBeenCalledWith(pc.gray('Trace message'));
   });
 
   it('should format object arguments correctly', () => {
@@ -85,5 +109,93 @@ describe('logger', () => {
   it('should handle multiple arguments', () => {
     logger.info('Multiple', 'arguments', 123);
     expect(console.log).toHaveBeenCalledWith('CYAN:Multiple arguments 123');
+  });
+});
+
+describe('setLogLevelByWorkerData', () => {
+  // setLogLevelByWorkerData reads `workerData` (captured at module load) and
+  // process.env at call time. Re-import per case via vi.resetModules so each
+  // test sees a fresh module with its own mocked workerData.
+  const originalLevel = logger.getLogLevel();
+  const originalEnvLogLevel = process.env.REPOMIX_LOG_LEVEL;
+
+  beforeEach(() => {
+    delete process.env.REPOMIX_LOG_LEVEL;
+  });
+
+  afterEach(() => {
+    vi.doUnmock('node:worker_threads');
+    vi.resetModules();
+    logger.setLogLevel(originalLevel);
+    if (originalEnvLogLevel === undefined) {
+      delete process.env.REPOMIX_LOG_LEVEL;
+    } else {
+      process.env.REPOMIX_LOG_LEVEL = originalEnvLogLevel;
+    }
+  });
+
+  it('sets log level from REPOMIX_LOG_LEVEL env var', async () => {
+    process.env.REPOMIX_LOG_LEVEL = String(repomixLogLevels.DEBUG);
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(repomixLogLevels.DEBUG);
+  });
+
+  it('ignores non-numeric REPOMIX_LOG_LEVEL', async () => {
+    process.env.REPOMIX_LOG_LEVEL = 'not-a-number';
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+    const before = freshLogger.getLogLevel();
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(before);
+  });
+
+  it('ignores out-of-range REPOMIX_LOG_LEVEL', async () => {
+    process.env.REPOMIX_LOG_LEVEL = '999';
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+    const before = freshLogger.getLogLevel();
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(before);
+  });
+
+  it('falls back to workerData when env var is unset', async () => {
+    vi.resetModules();
+    vi.doMock('node:worker_threads', () => ({
+      workerData: ['some-task', { logLevel: repomixLogLevels.ERROR }],
+    }));
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(repomixLogLevels.ERROR);
+  });
+
+  it('ignores invalid logLevel in workerData', async () => {
+    vi.resetModules();
+    vi.doMock('node:worker_threads', () => ({
+      workerData: ['some-task', { logLevel: 42 }],
+    }));
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+    const before = freshLogger.getLogLevel();
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(before);
+  });
+
+  it('does nothing when workerData is null and env var is unset', async () => {
+    vi.resetModules();
+    vi.doMock('node:worker_threads', () => ({ workerData: null }));
+    const { setLogLevelByWorkerData, logger: freshLogger } = await import('../../src/shared/logger.js');
+    const before = freshLogger.getLogLevel();
+
+    setLogLevelByWorkerData();
+
+    expect(freshLogger.getLogLevel()).toBe(before);
   });
 });

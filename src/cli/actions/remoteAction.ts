@@ -1,104 +1,290 @@
-import { exec } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import pc from 'picocolors';
+import { execGitShallowClone } from '../../core/git/gitCommand.js';
+import { downloadGitHubArchive, isArchiveDownloadSupported } from '../../core/git/gitHubArchive.js';
+import { getRemoteRefs } from '../../core/git/gitRemoteHandle.js';
+import { isGitHubRepository, parseGitHubRepoInfo, parseRemoteValue } from '../../core/git/gitRemoteParse.js';
+import { isGitInstalled } from '../../core/git/gitRepositoryHandle.js';
+import { generateDefaultSkillNameFromUrl, generateProjectNameFromUrl } from '../../core/skill/skillUtils.js';
 import { RepomixError } from '../../shared/errorHandle.js';
 import { logger } from '../../shared/logger.js';
-import type { CliOptions } from '../cliRun.js';
-import Spinner from '../cliSpinner.js';
-import { runDefaultAction } from './defaultAction.js';
+import { Spinner } from '../cliSpinner.js';
+import { validateTokenBudget } from '../cliTokenBudget.js';
+import { promptSkillLocation, resolveAndPrepareSkillDir } from '../prompts/skillPrompts.js';
+import type { CliOptions } from '../types.js';
+import { type DefaultActionRunnerResult, runDefaultAction } from './defaultAction.js';
 
-const execAsync = promisify(exec);
-
-export const runRemoteAction = async (repoUrl: string, options: CliOptions): Promise<void> => {
-  const gitInstalled = await checkGitInstallation();
-  if (!gitInstalled) {
-    throw new RepomixError('Git is not installed or not in the system PATH.');
+export const runRemoteAction = async (
+  repoUrl: string,
+  cliOptions: CliOptions,
+  deps = {
+    isGitInstalled,
+    execGitShallowClone,
+    getRemoteRefs,
+    runDefaultAction,
+    downloadGitHubArchive,
+    isGitHubRepository,
+    parseGitHubRepoInfo,
+    isArchiveDownloadSupported,
+  },
+): Promise<DefaultActionRunnerResult> => {
+  // Validate --config path before any expensive operations (download/clone):
+  // only absolute paths are allowed to prevent loading config from the cloned repository
+  if (cliOptions.config && !path.isAbsolute(cliOptions.config)) {
+    throw new RepomixError(
+      `In remote mode, --config must be an absolute path to avoid loading config from the cloned repository.\n` +
+        `  Provided: ${cliOptions.config}\n` +
+        `  Example:  repomix --remote <url> --config /home/user/repomix.config.json`,
+    );
   }
 
-  const formattedUrl = formatGitUrl(repoUrl);
-  const tempDir = await createTempDirectory();
-  const spinner = new Spinner('Cloning repository...');
+  let tempDirPath = await createTempDirectory();
+  let result: DefaultActionRunnerResult;
+  let downloadMethod: 'archive' | 'git' = 'git';
+
+  try {
+    // Check if this is a GitHub repository and archive download is supported
+    const githubRepoInfo = deps.parseGitHubRepoInfo(repoUrl);
+    const shouldTryArchive = githubRepoInfo && deps.isArchiveDownloadSupported(githubRepoInfo);
+
+    if (shouldTryArchive) {
+      // Try GitHub archive download first
+      const spinner = new Spinner('Downloading repository archive...', cliOptions);
+
+      try {
+        spinner.start();
+
+        // Override ref with CLI option if provided
+        const repoInfoWithBranch = {
+          ...githubRepoInfo,
+          ref: cliOptions.remoteBranch ?? githubRepoInfo.ref,
+        };
+
+        await deps.downloadGitHubArchive(
+          repoInfoWithBranch,
+          tempDirPath,
+          {
+            timeout: 60000, // 1 minute timeout for large repos
+            retries: 2,
+          },
+          (progress) => {
+            if (progress.percentage !== null) {
+              spinner.update(`Downloading repository archive... (${progress.percentage}%)`);
+            } else {
+              // Show downloaded bytes when percentage is not available
+              const downloadedMB = (progress.downloaded / 1024 / 1024).toFixed(1);
+              spinner.update(`Downloading repository archive... (${downloadedMB} MB)`);
+            }
+          },
+        );
+
+        downloadMethod = 'archive';
+        spinner.succeed('Repository archive downloaded successfully!');
+        logger.log('');
+      } catch (archiveError) {
+        spinner.fail('Archive download failed, trying git clone...');
+        logger.trace('Archive download error:', (archiveError as Error).message);
+
+        // Clear the temp directory for git clone attempt
+        await cleanupTempDirectory(tempDirPath);
+        tempDirPath = await createTempDirectory();
+
+        // Fall back to git clone
+        await performGitClone(repoUrl, tempDirPath, cliOptions, deps);
+        downloadMethod = 'git';
+      }
+    } else {
+      // Use git clone directly
+      await performGitClone(repoUrl, tempDirPath, cliOptions, deps);
+      downloadMethod = 'git';
+    }
+
+    // For skill generation, prompt for location using current directory (not temp directory)
+    let skillName: string | undefined;
+    let skillDir: string | undefined;
+    let skillProjectName: string | undefined;
+    if (cliOptions.skillGenerate !== undefined) {
+      skillName =
+        typeof cliOptions.skillGenerate === 'string'
+          ? cliOptions.skillGenerate
+          : generateDefaultSkillNameFromUrl(repoUrl);
+
+      // Generate project name from URL for use in skill description
+      skillProjectName = generateProjectNameFromUrl(repoUrl);
+
+      if (cliOptions.skillOutput) {
+        // Validate --skill-output is not empty or whitespace only
+        if (!cliOptions.skillOutput.trim()) {
+          throw new RepomixError('--skill-output path cannot be empty');
+        }
+        // Non-interactive mode: use provided path directly
+        skillDir = await resolveAndPrepareSkillDir(cliOptions.skillOutput, process.cwd(), cliOptions.force ?? false);
+      } else {
+        // Interactive mode: prompt for skill location
+        const promptResult = await promptSkillLocation(skillName, process.cwd());
+        skillDir = promptResult.skillDir;
+      }
+    }
+
+    // Run the default action on the downloaded/cloned repository
+    // Pass the pre-computed skill name, directory, project name, and source URL
+    const skillSourceUrl = cliOptions.skillGenerate !== undefined ? repoUrl : undefined;
+    const trustRemoteConfig = cliOptions.remoteTrustConfig || process.env.REPOMIX_REMOTE_TRUST_CONFIG === 'true';
+    const optionsWithSkill = {
+      ...cliOptions,
+      skillName,
+      skillDir,
+      skillProjectName,
+      skillSourceUrl,
+      skipLocalConfig: !trustRemoteConfig,
+      // Defer the token-budget check so the output is copied out of the temp
+      // dir below before the guard can throw; we run validateTokenBudget here
+      // afterwards. Otherwise an over-budget remote run would throw inside
+      // runDefaultAction and the temp dir (with the output) would be cleaned up.
+      deferTokenBudgetCheck: true,
+    };
+    result = await deps.runDefaultAction([tempDirPath], tempDirPath, optionsWithSkill);
+
+    // Copy output to current directory (only for non-skill generation)
+    // Skip copy for stdout mode (output goes directly to stdout)
+    // For skill generation, the skill is already written directly to the target directory
+    // (either via --skill-output path or via promptSkillLocation which uses process.cwd())
+    if (!cliOptions.stdout && result.config.skillGenerate === undefined) {
+      const outputFiles = result.packResult.outputFiles ?? [result.config.output.filePath];
+      for (const outputFile of outputFiles) {
+        await copyOutputToCurrentDirectory(tempDirPath, process.cwd(), outputFile);
+      }
+    }
+
+    // Enforce the token budget now that the output has been delivered (copied
+    // to the current directory, or written to stdout). Deferred above.
+    validateTokenBudget(result.packResult.totalTokens, result.config.output.tokenBudget);
+
+    logger.trace(`Repository obtained via ${downloadMethod} method`);
+  } finally {
+    // Cleanup the temporary directory
+    await cleanupTempDirectory(tempDirPath);
+  }
+
+  return result;
+};
+
+/**
+ * Performs git clone operation with spinner and error handling
+ */
+const performGitClone = async (
+  repoUrl: string,
+  tempDirPath: string,
+  cliOptions: CliOptions,
+  deps: {
+    isGitInstalled: typeof isGitInstalled;
+    getRemoteRefs: typeof getRemoteRefs;
+    execGitShallowClone: typeof execGitShallowClone;
+  },
+): Promise<void> => {
+  // Check if git is installed only when we actually need to use git
+  if (!(await deps.isGitInstalled())) {
+    throw new RepomixError('Git is not installed or not in the system PATH.');
+  }
+  // Get remote refs
+  let refs: string[] = [];
+  try {
+    refs = await deps.getRemoteRefs(parseRemoteValue(repoUrl).repoUrl);
+    logger.trace(`Retrieved ${refs.length} refs from remote repository`);
+  } catch (error) {
+    logger.trace('Failed to get remote refs, proceeding without them:', (error as Error).message);
+  }
+
+  // Parse the remote URL with the refs information
+  const parsedFields = parseRemoteValue(repoUrl, refs);
+
+  const spinner = new Spinner('Cloning repository...', cliOptions);
 
   try {
     spinner.start();
-    await cloneRepository(formattedUrl, tempDir);
+
+    // Clone the repository
+    await cloneRepository(parsedFields.repoUrl, tempDirPath, cliOptions.remoteBranch || parsedFields.remoteBranch, {
+      execGitShallowClone: deps.execGitShallowClone,
+    });
+
     spinner.succeed('Repository cloned successfully!');
     logger.log('');
-
-    const result = await runDefaultAction(tempDir, tempDir, options);
-    await copyOutputToCurrentDirectory(tempDir, process.cwd(), result.config.output.filePath);
-  } finally {
-    // Clean up the temporary directory
-    await cleanupTempDirectory(tempDir);
+  } catch (error) {
+    spinner.fail('Error during repository cloning. cleanup...');
+    throw error;
   }
 };
 
-export const formatGitUrl = (url: string): string => {
-  // If the URL is in the format owner/repo, convert it to a GitHub URL
-  if (/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(url)) {
-    logger.trace(`Formatting GitHub shorthand: ${url}`);
-    return `https://github.com/${url}.git`;
-  }
-
-  // Add .git to HTTPS URLs if missing
-  if (url.startsWith('https://') && !url.endsWith('.git')) {
-    logger.trace(`Adding .git to HTTPS URL: ${url}`);
-    return `${url}.git`;
-  }
-
-  return url;
-};
-
-const createTempDirectory = async (): Promise<string> => {
+export const createTempDirectory = async (): Promise<string> => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'repomix-'));
   logger.trace(`Created temporary directory. (path: ${pc.dim(tempDir)})`);
   return tempDir;
 };
 
-const cloneRepository = async (url: string, directory: string): Promise<void> => {
+export const cloneRepository = async (
+  url: string,
+  directory: string,
+  remoteBranch?: string,
+  deps = {
+    execGitShallowClone,
+  },
+): Promise<void> => {
   logger.log(`Clone repository: ${url} to temporary directory. ${pc.dim(`path: ${directory}`)}`);
   logger.log('');
 
   try {
-    await execAsync(`git clone --depth 1 ${url} ${directory}`);
+    await deps.execGitShallowClone(url, directory, remoteBranch);
   } catch (error) {
     throw new RepomixError(`Failed to clone repository: ${(error as Error).message}`);
   }
 };
 
-const cleanupTempDirectory = async (directory: string): Promise<void> => {
+export const cleanupTempDirectory = async (directory: string): Promise<void> => {
   logger.trace(`Cleaning up temporary directory: ${directory}`);
   await fs.rm(directory, { recursive: true, force: true });
 };
 
-const checkGitInstallation = async (): Promise<boolean> => {
-  try {
-    const result = await execAsync('git --version');
-    if (result.stderr) {
-      return false;
-    }
-    return true;
-  } catch (error) {
-    logger.debug('Git is not installed:', (error as Error).message);
-    return false;
-  }
-};
-
-const copyOutputToCurrentDirectory = async (
+export const copyOutputToCurrentDirectory = async (
   sourceDir: string,
   targetDir: string,
   outputFileName: string,
 ): Promise<void> => {
-  const sourcePath = path.join(sourceDir, outputFileName);
-  const targetPath = path.join(targetDir, outputFileName);
+  const sourcePath = path.resolve(sourceDir, outputFileName);
+  const targetPath = path.resolve(targetDir, outputFileName);
+
+  // Skip copy if source and target are the same
+  // This can happen when an absolute path is specified for the output file
+  if (sourcePath === targetPath) {
+    logger.trace(`Source and target are the same (${sourcePath}), skipping copy`);
+    return;
+  }
 
   try {
     logger.trace(`Copying output file from: ${sourcePath} to: ${targetPath}`);
+
+    // Create target directory if it doesn't exist
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
     await fs.copyFile(sourcePath, targetPath);
   } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+
+    // Provide helpful message for permission errors
+    if (nodeError.code === 'EPERM' || nodeError.code === 'EACCES') {
+      throw new RepomixError(
+        `Failed to copy output file to ${targetPath}: Permission denied.
+
+The current directory may be protected or require elevated permissions.
+Please try one of the following:
+  • Run from a different directory (e.g., your home directory or Documents folder)
+  • Use the --output flag to specify a writable location: --output ~/repomix-output.xml
+  • Use --stdout to print output directly to the console`,
+      );
+    }
+
     throw new RepomixError(`Failed to copy output file: ${(error as Error).message}`);
   }
 };

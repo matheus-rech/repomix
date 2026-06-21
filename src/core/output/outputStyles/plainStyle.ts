@@ -3,6 +3,7 @@ const PLAIN_LONG_SEPARATOR = '='.repeat(64);
 
 export const getPlainTemplate = () => {
   return `
+{{#if fileSummaryEnabled}}
 {{{generationHeader}}}
 
 ${PLAIN_LONG_SEPARATOR}
@@ -16,7 +17,7 @@ Purpose:
 File Format:
 ------------
 {{{summaryFileFormat}}}
-4. Multiple file entries, each consisting of:
+5. Multiple file entries, each consisting of:
   a. A separator line (================)
   b. The file path (File: path/to/file)
   c. Another separator line
@@ -31,23 +32,25 @@ Notes:
 ------
 {{{summaryNotes}}}
 
-Additional Info:
-----------------
-{{#if headerText}}
-User Provided Header:
------------------------
-{{{headerText}}}
 {{/if}}
 
-{{{summaryAdditionalInfo}}}
-
+{{#if headerText}}
 ${PLAIN_LONG_SEPARATOR}
-Repository Structure
+User Provided Header
+${PLAIN_LONG_SEPARATOR}
+{{{headerText}}}
+
+{{/if}}
+{{#if directoryStructureEnabled}}
+${PLAIN_LONG_SEPARATOR}
+Directory Structure
 ${PLAIN_LONG_SEPARATOR}
 {{{treeString}}}
 
+{{/if}}
+{{#if filesEnabled}}
 ${PLAIN_LONG_SEPARATOR}
-Repository Files
+Files
 ${PLAIN_LONG_SEPARATOR}
 
 {{#each processedFiles}}
@@ -57,6 +60,40 @@ ${PLAIN_SEPARATOR}
 {{{this.content}}}
 
 {{/each}}
+{{/if}}
+
+{{#if gitDiffEnabled}}
+${PLAIN_LONG_SEPARATOR}
+Git Diffs
+${PLAIN_LONG_SEPARATOR}
+${PLAIN_SEPARATOR}
+{{{gitDiffWorkTree}}}
+${PLAIN_SEPARATOR}
+
+${PLAIN_SEPARATOR}
+Git Diffs Staged
+${PLAIN_SEPARATOR}
+{{{gitDiffStaged}}}
+
+{{/if}}
+
+{{#if gitLogEnabled}}
+${PLAIN_LONG_SEPARATOR}
+Git Logs
+${PLAIN_LONG_SEPARATOR}
+{{#each gitLogCommits}}
+${PLAIN_SEPARATOR}
+Date: {{{this.date}}}
+Message: {{{this.message}}}
+Files:
+{{#each this.files}}
+  - {{{this}}}
+{{/each}}
+${PLAIN_SEPARATOR}
+
+{{/each}}
+
+{{/if}}
 
 {{#if instruction}}
 ${PLAIN_LONG_SEPARATOR}
@@ -65,5 +102,8 @@ ${PLAIN_LONG_SEPARATOR}
 {{{instruction}}}
 {{/if}}
 
+${PLAIN_LONG_SEPARATOR}
+End of Codebase
+${PLAIN_LONG_SEPARATOR}
 `;
 };

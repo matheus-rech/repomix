@@ -24,6 +24,138 @@ describe('fileManipulate', () => {
 `,
     },
     {
+      name: 'C++ header file comment removal',
+      ext: '.h',
+      input: `
+        // Single line comment
+        #ifndef MY_HEADER_H
+        #define MY_HEADER_H
+        /* Multi-line
+           comment block */
+        class MyClass {
+          // Method comment
+          void method();
+          /**
+           * Documentation comment
+           */
+          int value;
+        };
+        #endif // MY_HEADER_H
+      `,
+      expected: `
+
+        #ifndef MY_HEADER_H
+        #define MY_HEADER_H
+
+
+        class MyClass {
+
+          void method();
+
+
+
+          int value;
+        };
+        #endif
+`,
+    },
+    {
+      name: 'C++ source file comment removal',
+      ext: '.cc',
+      input: `
+        // Single line comment
+        #include "myheader.h"
+        /* Multi-line
+           comment block */
+        void MyClass::method() {
+          // Implementation comment
+          /* Another
+             multi-line comment */
+          int x = 0; // Inline comment
+        }
+      `,
+      expected: `
+
+        #include "myheader.h"
+
+
+        void MyClass::method() {
+
+
+
+          int x = 0;
+        }
+`,
+    },
+    {
+      name: 'C++ .cpp file comment removal',
+      ext: '.cpp',
+      input: `
+        // Single line comment
+        #include <iostream>
+        /* Multi-line
+           comment block */
+        int main() {
+          // Implementation comment
+          std::cout << "Hello, world!" << std::endl; // Inline comment
+          /* Another
+             multi-line comment */
+          return 0;
+        }
+      `,
+      expected: `
+
+        #include <iostream>
+
+
+        int main() {
+
+          std::cout << "Hello, world!" << std::endl;
+
+
+          return 0;
+        }
+`,
+    },
+    {
+      name: 'C++ .hpp file comment removal',
+      ext: '.hpp',
+      input: `
+        // Single line comment
+        #pragma once
+        /* Multi-line
+           comment block */
+        namespace test {
+          // Class comment
+          template <typename T>
+          class Test {
+            /**
+             * Documentation comment
+             */
+            public:
+              T value;
+          };
+        } // namespace test
+      `,
+      expected: `
+
+        #pragma once
+
+
+        namespace test {
+
+          template <typename T>
+          class Test {
+
+
+
+            public:
+              T value;
+          };
+        }
+`,
+    },
+    {
       name: 'C# comment removal',
       ext: '.cs',
       input: `
@@ -163,11 +295,16 @@ describe('fileManipulate', () => {
         Another docstring
         """
       `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
 
         def test():
 
+
+
           return True
+
+
 
 `,
     },
@@ -182,10 +319,13 @@ describe('fileManipulate', () => {
         docstring
         """
       `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
         var = """
         string variable
         """
+
+
 
 `,
     },
@@ -241,7 +381,12 @@ describe('fileManipulate', () => {
         '''
         """
       `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
+
+
+
+
 
 `,
     },
@@ -259,8 +404,15 @@ describe('fileManipulate', () => {
         """
         return True
     `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
       def func():
+
+
+
+
+
+
 
         return True
 `,
@@ -329,11 +481,16 @@ describe('fileManipulate', () => {
         # Another comment
         return x
     `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
 
       def func():
 
+
+
         x = 5
+
+
 
 
         return x
@@ -363,11 +520,11 @@ describe('fileManipulate', () => {
       name: 'Python escaped hash in string',
       ext: '.py',
       input: `
-      text = "This string contains an \# escaped hash"
+      text = "This string contains an # escaped hash"
       # This is a real comment
     `,
       expected: `
-      text = "This string contains an \# escaped hash"
+      text = "This string contains an # escaped hash"
 
 `,
     },
@@ -422,8 +579,12 @@ describe('fileManipulate', () => {
         """
         return True
     `,
+      // preserveNewlines keeps newlines for line number preservation
       expected: `
       def func():
+
+
+
 
         return True
 `,
@@ -432,12 +593,12 @@ describe('fileManipulate', () => {
       name: 'Python mixed single and double quotes',
       ext: '.py',
       input: `
-      x = '\"\"\""'  # This is not a docstring start
+      x = '""""'  # This is not a docstring start
       y = "'''"  # Neither is this
       """But this is a docstring"""
     `,
       expected: `
-      x = '\"\"\""'
+      x = '""""'
       y = "'''"
 
 `,
@@ -601,6 +762,80 @@ describe('fileManipulate', () => {
 `,
     },
     {
+      name: 'Go directives preservation',
+      ext: '.go',
+      input: `//go:build linux
+//go:generate something
+
+package main
+
+import "fmt"
+
+func main() {
+    // Regular comment
+    s1 := "String with // not a comment"
+    s2 := \`raw string with
+    // this is not a comment
+    /* neither is this */\`
+
+    r := '/' // rune literal
+
+    /*
+    Multi-line comment
+    */
+
+    fmt.Println("Hello") // end of line comment
+}`,
+      expected: `//go:build linux
+//go:generate something
+
+package main
+
+import "fmt"
+
+func main() {
+
+    s1 := "String with // not a comment"
+    s2 := \`raw string with
+    // this is not a comment
+    /* neither is this */\`
+
+    r := '/'
+
+
+
+
+
+    fmt.Println("Hello")
+}`,
+    },
+    {
+      name: 'Go mixed directives and comments',
+      ext: '.go',
+      input: `//go:build linux
+// This is a comment, not a directive
+//go:generate stringer -type=Color
+// Another comment
+package main`,
+      expected: `//go:build linux
+
+//go:generate stringer -type=Color
+
+package main`,
+    },
+    {
+      name: 'Go string literals with comments',
+      ext: '.go',
+      input: `s := "This is a string with \\"escaped\\" quotes // not a comment"
+// This is a comment
+r1 := '\\''  // Escaped single quote
+r2 := '\\\\'  // Backslash`,
+      expected: `s := "This is a string with \\"escaped\\" quotes // not a comment"
+
+r1 := '\\''
+r2 := '\\\\'`,
+    },
+    {
       name: 'Kotlin comment removal',
       ext: '.kt',
       input: `
@@ -736,6 +971,59 @@ describe('fileManipulate', () => {
         </style>
 `,
     },
+    {
+      name: 'C++ triple slash comment removal (.cpp)',
+      ext: '.cpp',
+      input: `
+        /// Triple slash documentation comment
+        #include <iostream>
+        // Single line comment
+        int main() {
+          std::cout << "Hello, world!" << std::endl; /// Inline triple slash comment
+          return 0; // Normal comment
+        }
+      `,
+      expected: `
+
+        #include <iostream>
+
+        int main() {
+          std::cout << "Hello, world!" << std::endl;
+          return 0;
+        }
+`,
+    },
+    {
+      name: 'C++ triple slash comment removal (.hpp)',
+      ext: '.hpp',
+      input: `
+        /// Class documentation with triple slash
+        class Test {
+          public:
+            /// Method documentation
+            void method();
+            int value; /// Variable documentation
+        };
+      `,
+      expected: `
+
+        class Test {
+          public:
+
+            void method();
+            int value;
+        };
+`,
+    },
+    {
+      name: 'C++ triple slash comment removal',
+      ext: '.cpp',
+      input: `
+        /// This is a triple slash comment.\n        int foo = 1; /// Another triple slash comment.\n// Regular single line comment\n/* Multi-line\n   comment */\nint bar = 2; /// Comment with trailing spaces  \n`,
+      expected: `
+
+        int foo = 1;\n\n\n\nint bar = 2;\n`,
+    },
   ];
 
   for (const { name, ext, input, expected } of testCases) {
@@ -748,5 +1036,59 @@ describe('fileManipulate', () => {
   test('Unsupported file type', () => {
     const manipulator = getFileManipulator('test.unsupported');
     expect(manipulator).toBeNull();
+  });
+
+  describe('case-insensitive extension matching', () => {
+    // Extensions are matched case-insensitively, so files with uppercase or
+    // mixed-case extensions still resolve to a manipulator. Without this,
+    // removeComments and removeEmptyLines silently no-op on such files.
+    test.each([
+      '.JS',
+      '.Js',
+      '.PY',
+      '.CSS',
+      '.C',
+      '.HTML',
+      '.Vue',
+    ])('resolves a manipulator for uppercase extension %s', (ext) => {
+      expect(getFileManipulator(`test${ext}`)).not.toBeNull();
+    });
+
+    test('strips comments from a file with an uppercase extension', () => {
+      const manipulator = getFileManipulator('Main.JS');
+      const input = 'const a = 1; // inline\n/* block */\nconst b = 2;';
+      expect(manipulator?.removeComments(input)).toBe('const a = 1;\n\nconst b = 2;');
+    });
+
+    test('still returns null for unsupported uppercase extensions', () => {
+      expect(getFileManipulator('test.UNSUPPORTED')).toBeNull();
+    });
+  });
+
+  describe('removeEmptyLines', () => {
+    // BaseManipulator.removeEmptyLines is inherited by every concrete manipulator.
+    // It runs after comment stripping in fileProcess to clean up the blanks left behind.
+    test('drops empty lines and whitespace-only lines', () => {
+      const manipulator = getFileManipulator('test.js');
+      const input = 'const a = 1;\n\n   \nconst b = 2;\n\nconst c = 3;\n';
+      expect(manipulator?.removeEmptyLines(input)).toBe('const a = 1;\nconst b = 2;\nconst c = 3;');
+    });
+
+    test('returns content unchanged when no empty lines exist', () => {
+      const manipulator = getFileManipulator('test.js');
+      const input = 'line1\nline2\nline3';
+      expect(manipulator?.removeEmptyLines(input)).toBe(input);
+    });
+
+    test('returns empty string when input is all blank lines', () => {
+      const manipulator = getFileManipulator('test.js');
+      expect(manipulator?.removeEmptyLines('\n\n   \n')).toBe('');
+    });
+
+    test('works for composite manipulators (.vue)', () => {
+      const manipulator = getFileManipulator('test.vue');
+      const input = 'a\n\nb';
+      expect(manipulator?.removeEmptyLines(input)).toBe('a\nb');
+    });
   });
 });
